@@ -31,18 +31,16 @@ import { EthereumTransactionParams } from "./EthereumTransactionParams"
 import { RelayMessage } from "./RelayMessage"
 import { Session } from "./Session"
 import {
+  APP_VERSION_KEY,
   CancelablePromise,
-  LOCAL_STORAGE_ADDRESSES_KEY,
-  WalletLinkRelayAbstract,
-  WALLET_USER_NAME_KEY
+  LOCAL_STORAGE_ADDRESSES_KEY, WalletLinkRelayAbstract, WALLET_USER_NAME_KEY
 } from "./WalletLinkRelayAbstract"
 import { WalletLinkRelayEventManager } from "./WalletLinkRelayEventManager"
 import { Web3Method } from "./Web3Method"
 import {
   AddEthereumChainRequest,
-  ArbitraryRequest,
   EthereumAddressFromSignedMessageRequest,
-  RequestEthereumAccountsRequest,
+  GenericRequest,
   ScanQRCodeRequest,
   SignEthereumMessageRequest,
   SignEthereumTransactionRequest,
@@ -54,9 +52,9 @@ import { Web3RequestCanceledMessage } from "./Web3RequestCanceledMessage"
 import { Web3RequestMessage } from "./Web3RequestMessage"
 import {
   AddEthereumChainResponse,
-  ArbitraryResponse,
   ErrorResponse,
   EthereumAddressFromSignedMessageResponse,
+  GenericResponse,
   isRequestEthereumAccountsResponse,
   RequestEthereumAccountsResponse,
   ScanQRCodeResponse,
@@ -70,6 +68,8 @@ import {
   isWeb3ResponseMessage,
   Web3ResponseMessage
 } from "./Web3ResponseMessage"
+import {ethErrors} from "eth-rpc-errors";
+
 
 export interface WalletLinkRelayOptions {
   walletLinkUrl: string
@@ -83,7 +83,7 @@ export interface WalletLinkRelayOptions {
   walletLinkAnalytics?: WalletLinkAnalyticsAbstract
 }
 
-export class WalletLinkRelay implements WalletLinkRelayAbstract {
+export class WalletLinkRelay extends WalletLinkRelayAbstract {
   private static accountRequestCallbackIds = new Set<string>()
 
   private readonly walletLinkUrl: string
@@ -93,7 +93,9 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
   protected readonly walletLinkAnalytics: WalletLinkAnalyticsAbstract | null
   private readonly connection: WalletLinkConnection
   private accountsCallback: ((account: [string]) => void) | null = null
-  private chainCallback: ((chainId: string, jsonRpcUrl: string) => void) | null = null
+  private chainCallback:
+    | ((chainId: string, jsonRpcUrl: string) => void)
+    | null = null
 
   private ui: WalletLinkUI
 
@@ -103,6 +105,7 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
   isLinked: boolean | undefined
 
   constructor(options: Readonly<WalletLinkRelayOptions>) {
+    super()
     this.walletLinkUrl = options.walletLinkUrl
     this.storage = options.storage
     this._session =
@@ -123,7 +126,7 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
     this.subscriptions.add(
       this.connection.incomingEvent$
         .pipe(filter(m => m.event === "Web3Response"))
-        .subscribe({ next: this.handleIncomingEvent })
+        .subscribe({ next: this.handleIncomingEvent }) // eslint-disable-line @typescript-eslint/unbound-method
     )
 
     this.subscriptions.add(
@@ -179,14 +182,45 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
             this.storage.setItem(WALLET_USER_NAME_KEY, walletUsername)
           },
           error: () => {
-            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {message: 'Had error decrypting', value: 'username'})
+            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {
+              message: "Had error decrypting",
+              value: "username"
+            })
           }
         })
     )
 
     this.subscriptions.add(
       this.connection.sessionConfig$
-        .pipe(filter(c => c.metadata && c.metadata.ChainId !== undefined && c.metadata.JsonRpcUrl !== undefined))
+        .pipe(filter(c => c.metadata && c.metadata.AppVersion !== undefined))
+        .pipe(
+          mergeMap(c =>
+            aes256gcm.decrypt(c.metadata.AppVersion!, this._session.secret)
+          )
+        )
+        .subscribe({
+          next: appVersion => {
+            this.storage.setItem(APP_VERSION_KEY, appVersion)
+          },
+          error: () => {
+            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {
+              message: "Had error decrypting",
+              value: "appversion"
+            })
+          }
+        })
+    )
+
+    this.subscriptions.add(
+      this.connection.sessionConfig$
+        .pipe(
+          filter(
+            c =>
+              c.metadata &&
+              c.metadata.ChainId !== undefined &&
+              c.metadata.JsonRpcUrl !== undefined
+          )
+        )
         .pipe(
           mergeMap(c =>
             zip(
@@ -199,11 +233,14 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
         .subscribe({
           next: ([chainId, jsonRpcUrl]) => {
             if (this.chainCallback) {
-              this.chainCallback(chainId!, jsonRpcUrl)
+              this.chainCallback(chainId, jsonRpcUrl)
             }
           },
           error: () => {
-            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {message: 'Had error decrypting', value: 'chainId|jsonRpcUrl'})
+            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {
+              message: "Had error decrypting",
+              value: "chainId|jsonRpcUrl"
+            })
           }
         })
     )
@@ -243,7 +280,10 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
             }
           },
           error: () => {
-            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {message: 'Had error decrypting', value: 'selectedAddress'})
+            this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {
+              message: "Had error decrypting",
+              value: "selectedAddress"
+            })
           }
         })
     )
@@ -290,7 +330,7 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
           this.storage.clear()
           this.ui.reloadUI()
         },
-        err => {
+        (err: string) => {
           this.walletLinkAnalytics?.sendEvent(EVENTS.FAILURE, {
             method: "relay::resetAndReload",
             message: `faled to reset and relod with ${err}`,
@@ -315,19 +355,6 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
 
   public setStorageItem(key: string, value: string): void {
     this.storage.setItem(key, value)
-  }
-
-  public requestEthereumAccounts(): CancelablePromise<RequestEthereumAccountsResponse> {
-    return this.sendRequest<
-      RequestEthereumAccountsRequest,
-      RequestEthereumAccountsResponse
-    >({
-      method: Web3Method.requestEthereumAccounts,
-      params: {
-        appName: this.appName,
-        appLogoUrl: this.appLogoUrl || null
-      }
-    })
   }
 
   public signEthereumMessage(
@@ -453,30 +480,23 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
     })
   }
 
-  public arbitraryRequest(data: string): CancelablePromise<ArbitraryResponse> {
-    return this.sendRequest<ArbitraryRequest, ArbitraryResponse>({
-      method: Web3Method.arbitrary,
-      params: { data }
+  public genericRequest(
+    data: object,
+    action: string
+  ): CancelablePromise<GenericResponse> {
+    return this.sendRequest<GenericRequest, GenericResponse>({
+      method: Web3Method.generic,
+      params: {
+        action,
+        data
+      }
     })
   }
 
-  public addEthereumChain(
-    chainId: string,
-    blockExplorerUrls?: string[],
-    chainName?: string,
-    iconUrls?: string[],
-    nativeCurrency?: { name: string; symbol: string; decimals: number }
-  ): CancelablePromise<AddEthereumChainResponse> {
-    return this.sendRequest<AddEthereumChainRequest, AddEthereumChainResponse>({
-      method: Web3Method.addEthereumChain,
-      params: {
-        chainId,
-        blockExplorerUrls,
-        chainName,
-        iconUrls,
-        nativeCurrency
-      }
-    })
+  public sendGenericMessage(
+    request: GenericRequest
+  ): CancelablePromise<GenericResponse> {
+    return this.sendRequest(request)
   }
 
   public sendRequest<T extends Web3Request, U extends Web3Response>(
@@ -484,6 +504,7 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
   ): CancelablePromise<U> {
     let hideSnackbarItem: (() => void) | null = null
     const id = randomBytesHex(8)
+
     const cancel = () => {
       this.publishWeb3RequestCanceledEvent(id)
       this.handleWeb3ResponseMessage(
@@ -494,160 +515,29 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
       )
       hideSnackbarItem?.()
     }
+
     const promise = new Promise<U>((resolve, reject) => {
-      const isRequestAccounts =
-        request.method === Web3Method.requestEthereumAccounts
-      const isSwitchEthereumChain =
-        request.method === Web3Method.switchEthereumChain
-
-      if (isRequestAccounts) {
-        const userAgent = window?.navigator?.userAgent || null
-        if (
-          userAgent &&
-          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-            userAgent
-          )
-        ) {
-          window.location.href = `https://go.cb-w.com/xoXnYwQimhb?cb_url=${window.location.href}`
-          return
-        }
-        if (this.ui.inlineAccountsResponse()) {
-          const onAccounts = (accounts: [AddressString]) => {
-            this.handleWeb3ResponseMessage(
-              Web3ResponseMessage({
-                id,
-                response: RequestEthereumAccountsResponse(accounts)
-              })
-            )
-          }
-
-          this.ui.requestEthereumAccounts({
-            onCancel: cancel,
-            onAccounts
-          })
-        } else {
-          this.ui.requestEthereumAccounts({
-            onCancel: cancel
-          })
-        }
-
-        WalletLinkRelay.accountRequestCallbackIds.add(id)
-      } else if (
-        request.method === Web3Method.switchEthereumChain ||
-        request.method === Web3Method.addEthereumChain
-      ) {
-        const cancel = () => {
-          this.handleWeb3ResponseMessage(
-            Web3ResponseMessage({
-              id,
-              response: SwitchEthereumChainResponse(false)
-            })
-          )
-        }
-        const approve = () => {
-          this.handleWeb3ResponseMessage(
-            Web3ResponseMessage({
-              id,
-              response: SwitchEthereumChainResponse(true)
-            })
-          )
-        }
-
-        this.ui.switchEthereumChain({
-          onCancel: cancel,
-          onApprove: approve,
-          chainId: (request as SwitchEthereumChainRequest).params.chainId
-        })
-
-        if (!this.ui.inlineSwitchEthereumChain()) {
-          hideSnackbarItem = this.ui.showConnecting({
-            onCancel: cancel,
-            onResetConnection: this.resetAndReload
-          })
-        }
-      } else if (this.ui.isStandalone()) {
-        const onCancel = () => {
-          this.handleWeb3ResponseMessage(
-            Web3ResponseMessage({
-              id,
-              response: ErrorResponse(request.method, "User rejected request")
-            })
-          )
-        }
-
-        const onSuccess = (
-          response:
-            | SignEthereumMessageResponse
-            | SignEthereumTransactionResponse
-            | SubmitEthereumTransactionResponse
-            | EthereumAddressFromSignedMessageResponse
-        ) => {
-          this.handleWeb3ResponseMessage(
-            Web3ResponseMessage({
-              id,
-              response: response
-            })
-          )
-        }
-
-        switch (request.method) {
-          case Web3Method.signEthereumMessage:
-            this.ui.signEthereumMessage({
-              request: request as SignEthereumMessageRequest,
-              onSuccess,
-              onCancel
-            })
-            break
-          case Web3Method.signEthereumTransaction:
-            this.ui.signEthereumTransaction({
-              request: request as SignEthereumTransactionRequest,
-              onSuccess,
-              onCancel
-            })
-            break
-          case Web3Method.submitEthereumTransaction:
-            this.ui.submitEthereumTransaction({
-              request: request as SubmitEthereumTransactionRequest,
-              onSuccess,
-              onCancel
-            })
-            break
-          case Web3Method.ethereumAddressFromSignedMessage:
-            this.ui.ethereumAddressFromSignedMessage({
-              request: request as EthereumAddressFromSignedMessageRequest,
-              onSuccess
-            })
-            break
-          default:
-            onCancel()
-            break
-        }
-      } else {
+      if (!this.ui.isStandalone()) {
         hideSnackbarItem = this.ui.showConnecting({
           onCancel: cancel,
-          onResetConnection: this.resetAndReload
+          onResetConnection: this.resetAndReload // eslint-disable-line @typescript-eslint/unbound-method
         })
       }
 
       this.relayEventManager.callbacks.set(id, response => {
-        this.ui.hideRequestEthereumAccounts()
         hideSnackbarItem?.()
-
         if (response.errorMessage) {
           return reject(new Error(response.errorMessage))
         }
+
         resolve(response as U)
       })
 
-      if (
-        (isRequestAccounts && this.ui.inlineAccountsResponse()) ||
-        (isSwitchEthereumChain && this.ui.inlineSwitchEthereumChain()) ||
-        this.ui.isStandalone()
-      ) {
-        return
+      if (this.ui.isStandalone()) {
+        this.sendRequestStandalone(id, request)
+      } else {
+        this.publishWeb3RequestEvent(id, request)
       }
-
-      this.publishWeb3RequestEvent(id, request)
     })
 
     return { promise, cancel }
@@ -661,7 +551,9 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
     this.accountsCallback = accountsCallback
   }
 
-  public setChainCallback(chainCallback: (chainId: string, jsonRpcUrl: string) => void) {
+  public setChainCallback(
+    chainCallback: (chainId: string, jsonRpcUrl: string) => void
+  ) {
     this.chainCallback = chainCallback
   }
 
@@ -698,7 +590,7 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
   ): Observable<string> {
     const secret = this.session.secret
     return new Observable<string>(subscriber => {
-      aes256gcm
+      void aes256gcm
         .encrypt(
           JSON.stringify({ ...message, origin: location.origin }),
           secret
@@ -731,7 +623,10 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
               this.handleWeb3ResponseMessage(message)
             },
             error: () => {
-              this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {message: 'Had error decrypting', value: 'incomingEvent'})
+              this.walletLinkAnalytics?.sendEvent(EVENTS.GENERAL_ERROR, {
+                message: "Had error decrypting",
+                value: "incomingEvent"
+              })
             }
           })
       )
@@ -744,9 +639,9 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
     const { response } = message
 
     if (isRequestEthereumAccountsResponse(response)) {
-      Array.from(
-        WalletLinkRelay.accountRequestCallbackIds.values()
-      ).forEach(id => this.invokeCallback({ ...message, id }))
+      Array.from(WalletLinkRelay.accountRequestCallbackIds.values()).forEach(
+        id => this.invokeCallback({ ...message, id })
+      )
       WalletLinkRelay.accountRequestCallbackIds.clear()
       return
     }
@@ -762,17 +657,332 @@ export class WalletLinkRelay implements WalletLinkRelayAbstract {
     }
   }
 
+  public requestEthereumAccounts(): CancelablePromise<RequestEthereumAccountsResponse> {
+    let request: Web3Request = {
+      method: Web3Method.requestEthereumAccounts,
+      params: {
+        appName: this.appName,
+        appLogoUrl: this.appLogoUrl || null
+      }
+    }
+
+    let hideSnackbarItem: (() => void) | null = null
+    const id = randomBytesHex(8)
+
+    const cancel = () => {
+      this.publishWeb3RequestCanceledEvent(id)
+      this.handleWeb3ResponseMessage(
+        Web3ResponseMessage({
+          id,
+          response: ErrorResponse(request.method, "User rejected request")
+        })
+      )
+      hideSnackbarItem?.()
+    }
+
+    const promise = new Promise<RequestEthereumAccountsResponse>((resolve, reject) => {
+      this.relayEventManager.callbacks.set(id, response => {
+        this.ui.hideRequestEthereumAccounts()
+        hideSnackbarItem?.()
+
+        if (response.errorMessage) {
+          return reject(new Error(response.errorMessage))
+        }
+        resolve(response as RequestEthereumAccountsResponse)
+      })
+
+      const userAgent = window?.navigator?.userAgent || null
+      if (
+        userAgent &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          userAgent
+        )
+      ) {
+        window.location.href = `https://go.cb-w.com/xoXnYwQimhb?cb_url=${window.location.href}`
+        return
+      }
+
+      if (this.ui.inlineAccountsResponse()) {
+        const onAccounts = (accounts: [AddressString]) => {
+          this.handleWeb3ResponseMessage(
+            Web3ResponseMessage({
+              id,
+              response: RequestEthereumAccountsResponse(accounts)
+            })
+          )
+        }
+
+        this.ui.requestEthereumAccounts({
+          onCancel: cancel,
+          onAccounts
+        })
+      } else {
+        this.ui.requestEthereumAccounts({
+          onCancel: cancel
+        })
+      }
+
+      WalletLinkRelay.accountRequestCallbackIds.add(id)
+
+      if (!this.ui.inlineAccountsResponse() && !this.ui.isStandalone()) {
+        this.publishWeb3RequestEvent(id, request)
+      }
+    })
+
+    return { promise, cancel }
+  }
+
+  addEthereumChain(
+    chainId: string,
+    rpcUrls: string[],
+    iconUrls: string[],
+    blockExplorerUrls: string[],
+    chainName?: string,
+    nativeCurrency?: {
+      name: string
+      symbol: string
+      decimals: number
+    }
+  ) {
+    let request: Web3Request = {
+      method: Web3Method.addEthereumChain,
+      params: {
+        chainId,
+        rpcUrls,
+        blockExplorerUrls,
+        chainName,
+        iconUrls,
+        nativeCurrency
+      }
+    }
+
+    let hideSnackbarItem: (() => void) | null = null
+    const id = randomBytesHex(8)
+
+    const cancel = () => {
+      this.publishWeb3RequestCanceledEvent(id)
+      this.handleWeb3ResponseMessage(
+        Web3ResponseMessage({
+          id,
+          response: ErrorResponse(request.method, "User rejected request")
+        })
+      )
+      hideSnackbarItem?.()
+    }
+
+    if (!this.ui.inlineAddEthereumChain(chainId)) {
+      hideSnackbarItem = this.ui.showConnecting({
+        onCancel: cancel,
+        onResetConnection: this.resetAndReload // eslint-disable-line @typescript-eslint/unbound-method
+      })
+    }
+
+    const promise = new Promise<AddEthereumChainResponse>((resolve, reject) => {
+      this.relayEventManager.callbacks.set(id, response => {
+        hideSnackbarItem?.()
+
+        if (response.errorMessage) {
+          return reject(new Error(response.errorMessage))
+        }
+        resolve(response as AddEthereumChainResponse)
+      })
+
+      const _cancel = () => {
+        this.handleWeb3ResponseMessage(
+          Web3ResponseMessage({
+            id,
+            response: AddEthereumChainResponse({ isApproved: false, rpcUrl: "" })
+          })
+        )
+      }
+
+      const approve = (rpcUrl: string) => {
+        this.handleWeb3ResponseMessage(
+          Web3ResponseMessage({
+            id,
+            response: AddEthereumChainResponse({ isApproved: true, rpcUrl })
+          })
+        )
+      }
+
+      if (this.ui.inlineAddEthereumChain(chainId)) {
+        this.ui.addEthereumChain({
+          onCancel: _cancel,
+          onApprove: approve,
+          chainId: (request as AddEthereumChainRequest).params.chainId,
+          rpcUrls: (request as AddEthereumChainRequest).params.rpcUrls,
+          blockExplorerUrls: (request as AddEthereumChainRequest).params.blockExplorerUrls,
+          chainName: (request as AddEthereumChainRequest).params.chainName,
+          iconUrls: (request as AddEthereumChainRequest).params.iconUrls,
+          nativeCurrency: (request as AddEthereumChainRequest).params.nativeCurrency,
+        })
+      }
+
+      if (!this.ui.inlineAddEthereumChain(chainId) && !this.ui.isStandalone()) {
+        this.publishWeb3RequestEvent(id, request)
+      }
+    })
+
+    return { promise, cancel }
+  }
+
   switchEthereumChain(
     chainId: string
   ): CancelablePromise<SwitchEthereumChainResponse> {
-    return this.sendRequest<
-      SwitchEthereumChainRequest,
-      SwitchEthereumChainResponse
-    >({
+    let request: Web3Request = {
       method: Web3Method.switchEthereumChain,
       params: {
         chainId
       }
+    }
+
+    let hideSnackbarItem: (() => void) | null = null
+    const id = randomBytesHex(8)
+
+    const cancel = () => {
+      this.publishWeb3RequestCanceledEvent(id)
+      this.handleWeb3ResponseMessage(
+        Web3ResponseMessage({
+          id,
+          response: ErrorResponse(request.method, "User rejected request")
+        })
+      )
+      hideSnackbarItem?.()
+    }
+
+    if (!this.ui.inlineSwitchEthereumChain()) {
+      hideSnackbarItem = this.ui.showConnecting({
+        onCancel: cancel,
+        onResetConnection: this.resetAndReload // eslint-disable-line @typescript-eslint/unbound-method
+      })
+    }
+
+    const promise = new Promise<SwitchEthereumChainResponse>((resolve, reject) => {
+      this.relayEventManager.callbacks.set(id, response => {
+        hideSnackbarItem?.()
+
+        if (response.errorMessage && (response as ErrorResponse).errorCode) {
+          return reject(ethErrors.provider.custom({
+            code: (response as ErrorResponse).errorCode!,
+            message: `Unrecognized chain ID. Try adding the chain using addEthereumChain first.`,
+          }))
+        } else if (response.errorMessage) {
+          return reject(new Error(response.errorMessage))
+        }
+
+        resolve(response as SwitchEthereumChainResponse)
+      })
+
+      const _cancel = (errorCode?: number) => {
+        if (errorCode) {
+          this.handleWeb3ResponseMessage(
+            Web3ResponseMessage({
+              id,
+              response: ErrorResponse(
+                Web3Method.switchEthereumChain,
+                "unsupported chainId",
+                errorCode
+              )
+            })
+          )
+        } else {
+          this.handleWeb3ResponseMessage(
+            Web3ResponseMessage({
+              id,
+              response: SwitchEthereumChainResponse({
+                isApproved: false,
+                rpcUrl: "",
+              })
+            })
+          )
+        }
+      }
+
+      const approve = (rpcUrl: string) => {
+        this.handleWeb3ResponseMessage(
+          Web3ResponseMessage({
+            id,
+            response: SwitchEthereumChainResponse({
+              isApproved: true,
+              rpcUrl
+            })
+          })
+        )
+      }
+
+      this.ui.switchEthereumChain({
+        onCancel: _cancel,
+        onApprove: approve,
+        chainId: (request as SwitchEthereumChainRequest).params.chainId
+      })
+
+      if (!this.ui.inlineSwitchEthereumChain() && !this.ui.isStandalone()) {
+        this.publishWeb3RequestEvent(id, request)
+      }
     })
+
+    return { promise, cancel }
+  }
+
+  private sendRequestStandalone<T extends Web3Request>(
+    id: string,
+    request: T,
+  ) {
+    const _cancel = () => {
+      this.handleWeb3ResponseMessage(
+        Web3ResponseMessage({
+          id,
+          response: ErrorResponse(request.method, "User rejected request")
+        })
+      )
+    }
+
+    const onSuccess = (
+      response:
+        | SignEthereumMessageResponse
+        | SignEthereumTransactionResponse
+        | SubmitEthereumTransactionResponse
+        | EthereumAddressFromSignedMessageResponse
+    ) => {
+      this.handleWeb3ResponseMessage(
+        Web3ResponseMessage({
+          id,
+          response
+        })
+      )
+    }
+
+    switch (request.method) {
+      case Web3Method.signEthereumMessage:
+        this.ui.signEthereumMessage({
+          request,
+          onSuccess,
+          onCancel: _cancel
+        })
+        break
+      case Web3Method.signEthereumTransaction:
+        this.ui.signEthereumTransaction({
+          request,
+          onSuccess,
+          onCancel: _cancel
+        })
+        break
+      case Web3Method.submitEthereumTransaction:
+        this.ui.submitEthereumTransaction({
+          request,
+          onSuccess,
+          onCancel: _cancel
+        })
+        break
+      case Web3Method.ethereumAddressFromSignedMessage:
+        this.ui.ethereumAddressFromSignedMessage({
+          request,
+          onSuccess
+        })
+        break
+      default:
+        _cancel()
+        break
+    }
   }
 }

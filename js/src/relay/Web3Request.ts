@@ -13,7 +13,7 @@ import { Web3Method } from "./Web3Method"
 
 interface BaseWeb3Request<
   Method extends Web3Method,
-  Params extends object = {}
+  Params extends object = Record<string, unknown>
 > {
   method: Method
   params: Params
@@ -30,15 +30,15 @@ export type RequestEthereumAccountsRequest = BaseWeb3Request<
 export type AddEthereumChainRequest = BaseWeb3Request<
   Web3Method.addEthereumChain,
   {
-    chainId: string,
-    blockExplorerUrls?: string[],
-    chainName?: string,
+    chainId: string
+    blockExplorerUrls?: string[]
+    chainName?: string
     iconUrls?: string[]
-    rpcUrls?: string[],
+    rpcUrls: string[]
     nativeCurrency?: {
-      name: string;
-      symbol: string;
-      decimals: number;
+      name: string
+      symbol: string
+      decimals: number
     }
   }
 >
@@ -101,10 +101,20 @@ export type ScanQRCodeRequest = BaseWeb3Request<
   }
 >
 
-export type ArbitraryRequest = BaseWeb3Request<
-  Web3Method.arbitrary,
+export type GenericRequest = BaseWeb3Request<
+  Web3Method.generic,
   {
-    data: string
+    action: string
+    data: object
+  }
+>
+
+export type MakeEthereumJSONRPCRequest = BaseWeb3Request<
+  Web3Method.makeEthereumJSONRPCRequest,
+  {
+    rpcMethod: string
+    rpcParams: unknown[]
+    chainId: string
   }
 >
 
@@ -115,6 +125,7 @@ export type Web3Request =
   | SubmitEthereumTransactionRequest
   | EthereumAddressFromSignedMessageRequest
   | ScanQRCodeRequest
-  | ArbitraryRequest
+  | GenericRequest
   | AddEthereumChainRequest
   | SwitchEthereumChainRequest
+  | MakeEthereumJSONRPCRequest

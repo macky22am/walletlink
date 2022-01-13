@@ -57,6 +57,25 @@ export class WalletLinkSdkUI extends WalletLinkUI {
     this.linkFlow.setConnectDisabled(connectDisabled)
   }
 
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  addEthereumChain(options: {
+    onCancel: () => void
+    onApprove: () => void
+    chainId: string
+    rpcUrls: string[]
+    blockExplorerUrls?: string[],
+    chainName?: string,
+    iconUrls?: string[],
+    nativeCurrency?: {
+      name: string;
+      symbol: string;
+      decimals: number;
+    }
+  }) {
+    // no-op
+  }
+
   // @ts-ignore
   switchEthereumChain(options: {
     onCancel: () => void
@@ -145,6 +164,11 @@ export class WalletLinkSdkUI extends WalletLinkUI {
   }
 
   inlineAccountsResponse(): boolean {
+    return false
+  }
+
+  // @ts-ignore
+  inlineAddEthereumChain(chainId: string): boolean {
     return false
   }
 

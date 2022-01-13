@@ -12,28 +12,54 @@ interface BaseWeb3Response<Result> {
 }
 
 export interface ErrorResponse extends BaseWeb3Response<void> {
+  errorCode?: number
   errorMessage: string
 }
 
 export function ErrorResponse(
   method: Web3Method,
-  errorMessage: string
+  errorMessage: string,
+  errorCode?: number
 ): ErrorResponse {
-  return { method, errorMessage }
+  return { method, errorMessage, errorCode }
 }
 
 export type RequestEthereumAccountsResponse = BaseWeb3Response<
   AddressString[] // an array of ethereum addresses
 >
 
-export type AddEthereumChainResponse = BaseWeb3Response<null>
+export type AddEthereumChainResponse = BaseWeb3Response<AddResponse | boolean> // was request approved
 
-export type SwitchEthereumChainResponse = BaseWeb3Response<boolean> // was request approved
+export type AddResponse = {
+  isApproved: boolean
+  rpcUrl: string
+}
+
+export function AddEthereumChainResponse(
+  addResponse: AddResponse
+): SwitchEthereumChainResponse {
+  return {
+    method: Web3Method.addEthereumChain,
+    result: addResponse
+  }
+}
+
+export type SwitchEthereumChainResponse = BaseWeb3Response<
+  SwitchResponse | boolean
+> // was request approved
+
+export type SwitchResponse = {
+  isApproved: boolean
+  rpcUrl: string
+}
 
 export function SwitchEthereumChainResponse(
-  isApproved: boolean
+  switchResponse: SwitchResponse
 ): SwitchEthereumChainResponse {
-  return { method: Web3Method.switchEthereumChain, result: isApproved }
+  return {
+    method: Web3Method.switchEthereumChain,
+    result: switchResponse
+  }
 }
 
 export function RequestEthereumAccountsResponse(
@@ -81,11 +107,14 @@ export function EthereumAddressFromSignedMessageResponse(
   }
 }
 
-export type EthereumAddressFromSignedMessageResponse = BaseWeb3Response<AddressString> // ethereum address
+export type EthereumAddressFromSignedMessageResponse =
+  BaseWeb3Response<AddressString> // ethereum address
 
 export type ScanQRCodeResponse = BaseWeb3Response<string> // scanned string
 
-export type ArbitraryResponse = BaseWeb3Response<string> // response data
+export type GenericResponse = BaseWeb3Response<object> // response data
+
+export type MakeEthereumJSONRPCResponse = BaseWeb3Response<unknown>
 
 export type Web3Response =
   | ErrorResponse
@@ -95,6 +124,7 @@ export type Web3Response =
   | SubmitEthereumTransactionResponse
   | EthereumAddressFromSignedMessageResponse
   | ScanQRCodeResponse
-  | ArbitraryResponse
+  | GenericResponse
   | AddEthereumChainResponse
   | SwitchEthereumChainResponse
+  | MakeEthereumJSONRPCResponse
