@@ -3,10 +3,6 @@ export interface EventListener {
 }
 
 export const EVENTS = {
-  REQUEST_CHILD_ETHEREUM_ACCOUNTS_START:
-    "walletlink_sdk.request_child_ethereum_accounts.start",
-  REQUEST_CHILD_ETHEREUM_ACCOUNTS_RESPONSE:
-    "walletlink_sdk.request_child_ethereum_accounts.response",
   STARTED_CONNECTING: "walletlink_sdk.started.connecting",
   CONNECTED_STATE_CHANGE: "walletlink_sdk.connected",
   DISCONNECTED: "walletlink_sdk.disconnected",
@@ -22,5 +18,5 @@ export const EVENTS = {
   WEB3_REQUEST: "walletlink_sdk.web3.request",
   WEB3_REQUEST_PUBLISHED: "walletlink_sdk.web3.request_published",
   WEB3_RESPONSE: "walletlink_sdk.web3.response",
-  UNKNOWN_ADDRESS_ENCOUNTERED: "walletlink_sdk.unknown_address_encountered"
+  UNKNOWN_ADDRESS_ENCOUNTERED: "walletlink_sdk.unknown_address_encountered",
 };

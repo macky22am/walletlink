@@ -32,7 +32,7 @@ export const TryExtensionLinkDialog: FunctionComponent<{
     const timers = [
       window.setTimeout(() => {
         setDialogHidden(!isOpen);
-      }, 10)
+      }, 10),
     ];
 
     if (isOpen) {
@@ -41,7 +41,7 @@ export const TryExtensionLinkDialog: FunctionComponent<{
       timers.push(
         window.setTimeout(() => {
           setContainerHidden(true);
-        }, 360)
+        }, 360),
       );
     }
 
@@ -54,28 +54,28 @@ export const TryExtensionLinkDialog: FunctionComponent<{
     <div
       class={clsx(
         "-cbwsdk-extension-dialog-container",
-        isContainerHidden && "-cbwsdk-extension-dialog-container-hidden"
+        isContainerHidden && "-cbwsdk-extension-dialog-container-hidden",
       )}
     >
       <style>{css}</style>
       <div
         class={clsx(
           "-cbwsdk-extension-dialog-backdrop",
-          isDialogHidden && "-cbwsdk-extension-dialog-backdrop-hidden"
+          isDialogHidden && "-cbwsdk-extension-dialog-backdrop-hidden",
         )}
       />
       <div class="-cbwsdk-extension-dialog">
         <div
           class={clsx(
             "-cbwsdk-extension-dialog-box",
-            isDialogHidden && "-cbwsdk-extension-dialog-box-hidden"
+            isDialogHidden && "-cbwsdk-extension-dialog-box-hidden",
           )}
         >
           <TryExtensionBox
             onInstallClick={() => {
               window.open(
                 "https://api.wallet.coinbase.com/rpc/v2/desktop/chrome",
-                "_blank"
+                "_blank",
               );
             }}
           />
@@ -157,11 +157,11 @@ const ScanQRBox: FunctionComponent<{
     props.sessionId,
     props.sessionSecret,
     props.linkAPIUrl,
-    props.isParentConnection
+    props.isParentConnection,
   );
 
   return (
-    <div class="-cbwsdk-extension-dialog-box-bottom">
+    <div data-testid="scan-qr-box" class="-cbwsdk-extension-dialog-box-bottom">
       <div class="-cbwsdk-extension-dialog-box-bottom-description-region">
         <h2>Or scan to connect</h2>
         <body class="-cbwsdk-extension-dialog-box-bottom-description">
@@ -187,14 +187,17 @@ const ScanQRBox: FunctionComponent<{
             image={{
               svg: walletLogo,
               width: 34,
-              height: 34
+              height: 34,
             }}
           />
         </div>
         <input type="hidden" name="cbwsdk-version" value={LIB_VERSION} />
         <input type="hidden" value={qrUrl} />
         {!props.isConnected && (
-          <div class="-cbwsdk-extension-dialog-box-bottom-qr-connecting">
+          <div
+            data-testid="connecting-spinner"
+            class="-cbwsdk-extension-dialog-box-bottom-qr-connecting"
+          >
             <Spinner size={36} color={"#000"} />
             <p>Connecting...</p>
           </div>

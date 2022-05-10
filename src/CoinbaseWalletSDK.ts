@@ -32,6 +32,8 @@ export interface CoinbaseWalletSDKOptions {
   overrideIsMetaMask?: boolean;
   /** @optional whether wallet link provider should override the isCoinbaseWallet property. */
   overrideIsCoinbaseWallet?: boolean;
+  /** @optional whether coinbase wallet provider should override the isCoinbaseBrowser property. */
+  overrideIsCoinbaseBrowser?: boolean;
   /** @optional whether or not onboarding overlay popup should be displayed */
   headlessMode?: boolean;
 }
@@ -46,6 +48,7 @@ export class CoinbaseWalletSDK {
   private _storage: ScopedLocalStorage;
   private _overrideIsMetaMask: boolean;
   private _overrideIsCoinbaseWallet: boolean;
+  private _overrideIsCoinbaseBrowser: boolean;
   private _eventListener?: EventListener;
 
   /**
@@ -68,6 +71,8 @@ export class CoinbaseWalletSDK {
     }
 
     this._overrideIsCoinbaseWallet = options.overrideIsCoinbaseWallet ?? true;
+    this._overrideIsCoinbaseBrowser =
+      options.overrideIsCoinbaseBrowser ?? false;
 
     this._eventListener = options.eventListener;
 
@@ -90,7 +95,7 @@ export class CoinbaseWalletSDK {
       uiConstructor,
       storage: this._storage,
       relayEventManager: this._relayEventManager,
-      eventListener: this._eventListener
+      eventListener: this._eventListener,
     });
     this.setAppInfo(options.appName, options.appLogoUrl);
 
@@ -107,7 +112,7 @@ export class CoinbaseWalletSDK {
    */
   public makeWeb3Provider(
     jsonRpcUrl = "",
-    chainId = 1
+    chainId = 1,
   ): CoinbaseWalletProvider {
     const extension = this.walletExtension;
     if (extension) {
@@ -134,7 +139,8 @@ export class CoinbaseWalletSDK {
       qrUrl: this.getQrUrl(),
       eventListener: this._eventListener,
       overrideIsMetaMask: this._overrideIsMetaMask,
-      overrideIsCoinbaseWallet: this._overrideIsCoinbaseWallet
+      overrideIsCoinbaseWallet: this._overrideIsCoinbaseWallet,
+      overrideIsCoinbaseBrowser: this._overrideIsCoinbaseBrowser,
     });
   }
 
@@ -145,7 +151,7 @@ export class CoinbaseWalletSDK {
    */
   public setAppInfo(
     appName: string | undefined,
-    appLogoUrl: string | null | undefined
+    appLogoUrl: string | null | undefined,
   ): void {
     this._appName = appName || "DApp";
     this._appLogoUrl = appLogoUrl || getFavicon();
@@ -185,8 +191,7 @@ export class CoinbaseWalletSDK {
   }
 
   private isCipherProvider(provider: CoinbaseWalletProvider): boolean {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
+    // @ts-expect-error isCipher walletlink property
     return typeof provider.isCipher === "boolean" && provider.isCipher;
   }
 }
